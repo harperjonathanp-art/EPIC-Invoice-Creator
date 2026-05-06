@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EPIC STEM — Invoice Creator</title>
+<meta name="description" content="EPIC STEM Program invoice generator with Google Sheets integration and SuccessFund payment links.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0C2340;
+    --maroon: #862633;
+    --gold: #C2A04F;
+    --bg: #f4f3f0;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --border: #ddd9d2;
+    --input-bg: #faf9f7;
+    --maroon-glow: rgba(134,38,51,0.25);
+    --green: #16a34a;
+    --amber: #d97706;
+  }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  /* Subtle grain overlay */
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -1;
+    background: linear-gradient(145deg, var(--bg) 0%, #e8e4dc 100%);
+  }
+
+  /* === TOPBAR === */
+  .topbar {
+    background: var(--navy);
+    padding: 0 32px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 20px rgba(12,35,64,0.35);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 20px; font-weight: 700; color: #fff;
+    letter-spacing: -0.5px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .logo .bolt { color: var(--gold); font-size: 22px; }
+  .top-right { display: flex; align-items: center; gap: 10px; }
+  .inv-badge {
+    background: rgba(194,160,79,0.15); color: var(--gold);
+    font-size: 11px; font-weight: 600; padding: 4px 12px;
+    border-radius: 20px; font-family: 'IBM Plex Mono', monospace;
+  }
+  .sync-pill {
+    font-size: 10px; font-weight: 600; padding: 4px 10px;
+    border-radius: 16px; font-family: 'IBM Plex Mono', monospace;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .sync-pill.on { background: rgba(22,163,74,0.2); color: var(--green); }
+  .sync-pill.off { background: rgba(217,119,6,0.2); color: var(--amber); }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .sync-pill.on .sync-dot { background: var(--green); }
+  .sync-pill.off .sync-dot { background: var(--amber); }
+
+  /* === LAYOUT === */
+  .container { max-width: 940px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  /* === SETUP BANNER === */
+  .banner {
+    border-radius: 10px; padding: 14px 20px; margin-bottom: 16px;
+    display: flex; align-items: flex-start; gap: 10px;
+    font-size: 13px; line-height: 1.5;
+    animation: fadeUp 0.3s ease both;
+  }
+  .banner.warn { background: rgba(217,119,6,0.08); border: 1.5px solid rgba(217,119,6,0.25); }
+  .banner.ok { background: rgba(22,163,74,0.06); border: 1.5px solid rgba(22,163,74,0.2); }
+  .banner strong { font-weight: 700; }
+  .banner code {
+    background: rgba(12,35,64,0.06); padding: 1px 5px;
+    border-radius: 3px; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  }
+  .url-row { display: flex; gap: 8px; margin-top: 8px; }
+  .url-row input {
+    flex: 1; padding: 8px 10px; border: 1.5px solid var(--border);
+    border-radius: 6px; font-size: 12px; font-family: 'IBM Plex Mono', monospace;
+    background: #fff; color: var(--text); outline: none;
+  }
+  .url-row input:focus { border-color: var(--navy); }
+  .url-row button {
+    padding: 8px 16px; border: none; border-radius: 6px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    background: var(--navy); color: #fff; white-space: nowrap;
+  }
+  .hidden { display: none !important; }
+
+  /* === TABS === */
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; overflow-x: auto; }
+  .tab {
+    padding: 9px 20px; border-radius: 7px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+    background: rgba(12,35,64,0.06); color: var(--navy);
+    transition: all 0.15s; white-space: nowrap;
+  }
+  .tab:hover { background: rgba(12,35,64,0.12); }
+  .tab.active { background: var(--navy); color: #fff; }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card); border-radius: 12px; padding: 24px 28px;
+    margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    border: 1px solid var(--border);
+    animation: fadeUp 0.3s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .card-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 2.5px;
+    color: var(--muted); font-family: 'IBM Plex Mono', monospace;
+    margin-bottom: 14px; font-weight: 600;
+  }
+
+  /* === FORM === */
+  .row { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .field { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .field.w2 { flex: 2; }
+  .lbl { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  input, select, textarea {
+    padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 7px;
+    font-size: 13.5px; font-family: 'DM Sans', sans-serif;
+    background: var(--input-bg); color: var(--text); outline: none;
+    transition: border 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--navy); box-shadow: 0 0 0 2.5px rgba(12,35,64,0.08);
+  }
+  textarea { resize: vertical; min-height: 52px; }
+
+  /* === LINE ITEMS === */
+  .ih {
+    display: flex; gap: 8px; margin-bottom: 5px; padding: 0 2px;
+    font-size: 9px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .ih-d { flex: 3; } .ih-q { flex: 0.7; text-align: center; }
+  .ih-p { flex: 1; text-align: center; } .ih-a { flex: 1; text-align: right; }
+  .ih-x { width: 32px; }
+  .irow {
+    display: flex; gap: 8px; align-items: center; margin-bottom: 7px;
+    animation: fadeUp 0.2s ease both;
+  }
+  .irow input.d { flex: 3; } .irow input.q { flex: 0.7; text-align: center; }
+  .irow input.p { flex: 1; text-align: center; }
+  .iamt {
+    flex: 1; text-align: right; font-weight: 600; font-size: 13px;
+    font-family: 'IBM Plex Mono', monospace; color: var(--navy); white-space: nowrap;
+  }
+  .xbtn {
+    width: 32px; height: 36px; border-radius: 6px;
+    border: 1.5px solid var(--border); background: #fff;
+    cursor: pointer; font-size: 16px; color: var(--maroon);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.15s;
+  }
+  .xbtn:hover { background: rgba(134,38,51,0.06); border-color: var(--maroon); }
+  .add-btn {
+    padding: 7px 16px; border: 2px dashed var(--border); border-radius: 7px;
+    background: transparent; cursor: pointer; font-size: 12px; font-weight: 600;
+    color: var(--navy); font-family: 'DM Sans', sans-serif; margin-top: 2px;
+  }
+  .add-btn:hover { border-color: var(--navy); background: rgba(12,35,64,0.02); }
+
+  /* === TOTALS === */
+  .tw { display: flex; justify-content: flex-end; margin-top: 16px; }
+  .tb { width: 240px; }
+  .tr { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  .gt { display: flex; justify-content: space-between; padding: 10px 0 0; font-size: 20px; font-weight: 700; color: var(--navy); border-top: 3px solid var(--navy); }
+
+  /* === BUTTONS === */
+  .actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+  .btn {
+    padding: 10px 24px; border: none; border-radius: 7px; font-size: 14px;
+    font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn-m { background: var(--maroon); color: #fff; box-shadow: 0 2px 10px var(--maroon-glow); }
+  .btn-m:hover { transform: translateY(-1px); box-shadow: 0 4px 16px var(--maroon-glow); }
+  .btn-m:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-n { background: var(--navy); color: #fff; }
+  .btn-n:hover { opacity: 0.9; }
+  .btn-o { background: transparent; color: var(--navy); border: 2px solid var(--navy); padding: 8px 20px; }
+  .btn-o:hover { background: rgba(12,35,64,0.04); }
+  .btn-om { background: transparent; color: var(--maroon); border: 2px solid var(--maroon); padding: 8px 20px; }
+  .btn-om:hover { background: rgba(134,38,51,0.04); }
+  .btn-sm { padding: 7px 14px; font-size: 12px; }
+
+  /* === PREVIEW === */
+  .pcard { max-width: 740px; margin: 0 auto 16px; padding: 36px 42px; }
+  .pheader {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 28px; padding-bottom: 16px; border-bottom: 3px solid var(--navy);
+  }
+  .pbrand { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 700; color: var(--navy); }
+  .pbsub { font-size: 11px; color: #999; margin-top: 3px; }
+  .pinv { font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 600; color: var(--gold); text-align: right; }
+  .pdates { font-size: 12px; color: #999; margin-top: 3px; text-align: right; }
+  .psec { margin-bottom: 20px; }
+  .pslbl { font-size: 9px; text-transform: uppercase; letter-spacing: 2px; color: #aaa; font-family: 'IBM Plex Mono', monospace; margin-bottom: 4px; font-weight: 500; }
+  .ptable { width: 100%; border-collapse: collapse; margin: 18px 0; }
+  .ptable th {
+    background: var(--navy); color: #fff; text-align: left; padding: 8px 14px;
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .ptable th.r { text-align: right; }
+  .ptable td { padding: 8px 14px; border-bottom: 1px solid #eee; font-size: 13px; }
+  .ptable td.r { text-align: right; }
+  .ptable tr:nth-child(even) { background: #f9f8f6; }
+  .pnotes {
+    margin-top: 24px; padding: 12px 16px; background: #f5f2ec;
+    border-left: 4px solid var(--gold); border-radius: 0 6px 6px 0;
+    font-size: 12.5px; color: #555; line-height: 1.5;
+  }
+  .pactions { display: flex; gap: 10px; justify-content: center; margin-bottom: 16px; flex-wrap: wrap; }
+
+  /* === HISTORY === */
+  .hrow {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 11px 0; border-bottom: 1px solid var(--border);
+  }
+  .hrow:last-child { border-bottom: none; }
+  .hnum { font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--navy); margin-right: 10px; font-size: 12px; }
+  .hcust { color: var(--muted); font-size: 13px; }
+  .hdate { font-size: 11px; color: var(--muted); margin-right: 12px; }
+  .htotal { font-family: 'IBM Plex Mono', monospace; font-weight: 700; color: var(--navy); font-size: 14px; }
+  .empty { text-align: center; color: var(--muted); padding: 32px 0; font-size: 13px; }
+  .htoolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .rbtn {
+    padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 11px; font-weight: 600;
+    font-family: 'DM Sans', sans-serif; color: var(--navy);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .rbtn:hover { border-color: var(--navy); }
+
+  /* === EMAIL VIEW === */
+  .email-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px;
+  }
+  .email-toolbar-label { font-size: 13px; font-weight: 600; color: var(--navy); }
+  .copied-toast {
+    text-align: center; padding: 8px; margin-bottom: 10px;
+    background: #065f46; color: #fff; border-radius: 7px;
+    font-size: 12px; font-weight: 600; display: none;
+  }
+
+  /* === TOAST === */
+  .toast {
+    position: fixed; bottom: 20px; right: 20px;
+    padding: 12px 20px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    z-index: 9999; transform: translateY(70px); opacity: 0;
+    transition: all 0.3s ease;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { background: #065f46; color: #fff; }
+  .toast.error { background: #991b1b; color: #fff; }
+  .toast.info { background: var(--navy); color: #fff; }
+
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff; border-radius: 50%;
+    animation: spin 0.5s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media print {
+    body { background: #fff; }
+    .topbar, .tabs, .actions, .pactions, .banner,
+    #view-form, #view-email, #view-history, .toast { display: none !important; }
+    .container { padding: 0; max-width: 100%; }
+    .card { box-shadow: none; border: none; animation: none; }
+  }
+  @media (max-width: 600px) {
+    .topbar { padding: 0 16px; }
+    .row { flex-direction: column; }
+    .field.w2 { flex: 1; }
+    .ih { display: none; }
+    .irow { flex-wrap: wrap; }
+    .irow input.d { flex: 1 1 100%; }
+    .pcard { padding: 20px 18px; }
+    .pheader { flex-direction: column; gap: 10px; }
+    .pinv, .pdates { text-align: left; }
+    .url-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo"><span class="bolt">&#9889;</span> EPIC STEM Invoicing</div>
+  <div class="top-right">
+    <div class="sync-pill off" id="syncPill"><span class="sync-dot"></span><span id="syncLbl">Offline</span></div>
+    <span class="inv-badge" id="topBadge"></span>
+  </div>
+</div>
+
+<div class="container">
+  <!-- SETUP BANNER -->
+  <div class="banner warn" id="setupBanner">
+    <span>&#128279;</span>
+    <div>
+      <strong>Connect to Google Sheets</strong> to save invoices automatically.<br>
+      Paste your Apps Script Web App URL below.
+      <div class="url-row">
+        <input type="text" id="webAppUrl" placeholder="https://script.google.com/macros/s/.../exec">
+        <button onclick="connectSheet()">Connect</button>
+      </div>
+    </div>
+  </div>
+  <div class="banner ok hidden" id="connectedBanner">
+    <span>&#9989;</span>
+    <div>
+      <strong>Connected to Google Sheets!</strong> Invoices save automatically.
+      <span style="opacity:0.5;cursor:pointer;margin-left:6px;text-decoration:underline" onclick="testConn()">Test</span>
+      <span style="opacity:0.5;cursor:pointer;margin-left:6px;text-decoration:underline" onclick="disconnect()">Disconnect</span>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" data-view="form" onclick="go('form')">&#9997;&#65039; Create</button>
+    <button class="tab" data-view="preview" onclick="go('preview')">&#128065;&#65039; Preview</button>
+    <button class="tab" data-view="email" onclick="go('email')">&#9993;&#65039; Email</button>
+    <button class="tab" data-view="history" onclick="go('history')">&#128203; History <span id="hCount">(0)</span></button>
+  </div>
+
+  <!-- === FORM === -->
+  <div id="view-form">
+    <div class="card">
+      <div class="card-title">Invoice Details</div>
+      <div class="row">
+        <div class="field"><label class="lbl">Invoice Date</label><input type="date" id="invDate"></div>
+        <div class="field"><label class="lbl">Due Date</label><input type="date" id="dueDate"></div>
+        <div class="field"><label class="lbl">Tax Rate</label>
+          <select id="taxRate">
+            <option value="0">No Tax</option>
+            <option value="0.06" selected>6% GA Sales Tax</option>
+            <option value="0.07">7%</option><option value="0.08">8%</option><option value="0.10">10%</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Bill To</div>
+      <div class="row">
+        <div class="field w2"><label class="lbl">Customer / Organization</label><input id="custName" placeholder="e.g. Gwinnett County Public Schools"></div>
+        <div class="field"><label class="lbl">Email</label><input type="email" id="custEmail" placeholder="contact@example.com"></div>
+      </div>
+      <div class="row"><div class="field"><label class="lbl">Address</label><input id="custAddr" placeholder="Street, City, State ZIP"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Products / Services</div>
+      <div class="ih"><span class="ih-d">Description</span><span class="ih-q">Qty</span><span class="ih-p">Price</span><span class="ih-a">Amount</span><span class="ih-x"></span></div>
+      <div id="itemBox"></div>
+      <button class="add-btn" onclick="addItem()">+ Add Line Item</button>
+      <div class="tw"><div class="tb">
+        <div class="tr"><span>Subtotal</span><span class="mono" id="dSub">$0.00</span></div>
+        <div class="tr"><span id="dTaxLbl">Tax (6%)</span><span class="mono" id="dTax">$0.00</span></div>
+        <div class="gt"><span>Total</span><span class="mono" id="dTot">$0.00</span></div>
+      </div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Notes / Terms</div>
+      <textarea id="notes" placeholder="Payment due within 30 days. Thank you for supporting EPIC STEM!"></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-o" onclick="go('preview')">Preview</button>
+      <button class="btn btn-m" id="saveBtn" onclick="saveAndPreview()">Save &amp; Preview &#9889;</button>
+    </div>
+  </div>
+
+  <!-- === PREVIEW === -->
+  <div id="view-preview" class="hidden">
+    <div class="card pcard" id="printArea">
+      <div class="pheader">
+        <div><div class="pbrand">&#9889; EPIC STEM</div><div class="pbsub">Entrepreneurship Projects in Innovation &amp; Collaboration</div></div>
+        <div><div class="pinv" id="pNum"></div><div class="pdates" id="pDates"></div></div>
+      </div>
+      <div class="psec"><div class="pslbl">Bill To</div><p id="pBillTo" style="font-size:13px;line-height:1.6"></p></div>
+      <table class="ptable"><thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody id="pItems"></tbody></table>
+      <div class="tw"><div class="tb">
+        <div class="tr"><span>Subtotal</span><span class="mono" id="pSub"></span></div>
+        <div class="tr"><span id="pTaxLbl"></span><span class="mono" id="pTax"></span></div>
+        <div class="gt"><span>Total</span><span class="mono" id="pTot"></span></div>
+      </div></div>
+      <div id="pNotes"></div>
+    </div>
+    <div class="pactions">
+      <button class="btn btn-o btn-sm" onclick="go('form')">&#8592; Edit</button>
+      <button class="btn btn-m btn-sm" onclick="window.print()">&#128424;&#65039; Print</button>
+      <button class="btn btn-n btn-sm" onclick="go('email')">&#9993;&#65039; Email Invoice</button>
+      <button class="btn btn-om btn-sm" onclick="resetForm()">+ New</button>
+    </div>
+  </div>
+
+  <!-- === EMAIL === -->
+  <div id="view-email" class="hidden">
+    <div class="card" style="padding:14px 20px">
+      <div class="email-toolbar">
+        <div class="email-toolbar-label">&#9993;&#65039; Email-ready invoice with payment link</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-o btn-sm" onclick="copyEmailHtml()">&#128203; Copy HTML</button>
+          <button class="btn btn-n btn-sm" onclick="openMailClient()">&#9993;&#65039; Open Email Client</button>
+        </div>
+      </div>
+    </div>
+    <div class="copied-toast" id="cpToast">Copied to clipboard!</div>
+    <div style="max-width:660px;margin:0 auto" id="emailWrap"></div>
+  </div>
+
+  <!-- === HISTORY === -->
+  <div id="view-history" class="hidden">
+    <div class="card">
+      <div class="htoolbar">
+        <div class="card-title" style="margin-bottom:0">Invoice History</div>
+        <button class="rbtn" onclick="loadHistory()" id="rBtn">&#8635; Refresh from Sheets</button>
+      </div>
+      <div id="hList"><div class="empty">No invoices saved yet. Create your first one! &#9889;</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ——— CONFIG ———
+var SHEET_URL = 'https://script.google.com/macros/s/AKfycbzH0Jj_e2yh1ZdRNk6qfRiu052qqOX1-_U1B9cqwcEeGWHjbCPS_foR2X7zITCo4GIHew/exec';
+var PAY_URL = 'https://www.successfund.com/xj5z9';
+var STORE_KEY = 'epicStemSheetUrl';
+
+// ——— STATE ———
+var webAppUrl = SHEET_URL;
+var items = [], nextId = 1, invoiceNumber = genInv(), saved = [], saving = false;
+var lastEmailHtml = '';
+
+// ——— INIT ———
+$('topBadge').textContent = invoiceNumber;
+$('invDate').value = today();
+try {
+  var s = localStorage.getItem(STORE_KEY);
+  if (s) { webAppUrl = s; $('webAppUrl').value = s; }
+} catch(e) {}
+if (webAppUrl) syncUI(true);
+addItem();
+
+// ——— HELPERS ———
+function $(id) { return document.getElementById(id); }
+function today() { return new Date().toISOString().split('T')[0]; }
+function genInv() {
+  var d = new Date();
+  return 'EPIC-' + String(d.getFullYear()).slice(-2) + String(d.getMonth()+1).padStart(2,'0') + '-' + Math.floor(1000+Math.random()*9000);
+}
+function escH(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escA(s) { return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function toast(m,t) { var e=$('toast'); e.textContent=m; e.className='toast '+t; setTimeout(function(){e.classList.add('show')},10); setTimeout(function(){e.classList.remove('show')},3500); }
+function vals() {
+  var tr = parseFloat($('taxRate').value), sub = items.reduce(function(s,i){return s+i.qty*i.price},0);
+  return { tr:tr, sub:sub, tax:sub*tr, tot:sub+sub*tr };
+}
+
+// ——— SHEETS CONNECTION ———
+function connectSheet() {
+  var u = $('webAppUrl').value.trim();
+  if (!u || !u.startsWith('https://')) { toast('Enter a valid URL','error'); return; }
+  webAppUrl = u;
+  try { localStorage.setItem(STORE_KEY, u); } catch(e) {}
+  syncUI(true); toast('Connected!','success'); loadHistory();
+}
+function disconnect() {
+  webAppUrl = SHEET_URL;
+  try { localStorage.removeItem(STORE_KEY); } catch(e) {}
+  syncUI(!!webAppUrl); toast('Reset to default','info');
+}
+function syncUI(on) {
+  $('setupBanner').classList.toggle('hidden', on);
+  $('connectedBanner').classList.toggle('hidden', !on);
+  var p = $('syncPill'); p.className = 'sync-pill ' + (on?'on':'off');
+  $('syncLbl').textContent = on ? 'Synced' : 'Offline';
+}
+async function testConn() {
+  toast('Testing...','info');
+  try {
+    var r = await fetch(webAppUrl + '?action=ping'); var d = await r.json();
+    toast('Connected! Status: ' + d.status, 'success');
+  } catch(e) { toast('Failed: ' + e.message, 'error'); }
+}
+
+// ——— SHEETS SAVE/LOAD (clean fetch — works on HTTPS) ———
+async function saveToSheet(data) {
+  if (!webAppUrl) return false;
+  try {
+    var payload = encodeURIComponent(JSON.stringify(data));
+    var r = await fetch(webAppUrl + '?action=save&payload=' + payload);
+    var d = await r.json();
+    return d && d.status === 'success';
+  } catch(e) { toast('Save error: '+e.message,'error'); return false; }
+}
+
+async function loadHistory() {
+  if (!webAppUrl) { toast('Connect to Sheets first','info'); return; }
+  $('rBtn').innerHTML = '<span class="spinner" style="width:10px;height:10px;border-width:1.5px"></span> Loading...';
+  try {
+    var r = await fetch(webAppUrl + '?action=load'); var d = await r.json();
+    if (d.status==='success' && d.invoices) {
+      saved = d.invoices.map(function(r){return{number:r['Invoice #']||'\u2014',customer:r['Customer']||'',total:parseFloat(String(r['Total']||'0').replace('$','')),date:r['Date']||''}});
+      renderHistory(); $('hCount').textContent='('+saved.length+')';
+      toast('Loaded '+saved.length+' invoices','success');
+    }
+  } catch(e) { toast('Load failed: '+e.message,'error'); }
+  $('rBtn').innerHTML = '&#8635; Refresh from Sheets';
+}
+
+// ——— VIEWS ———
+function go(v) {
+  ['form','preview','email','history'].forEach(function(id){$('view-'+id).classList.toggle('hidden',v!==id)});
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active',t.dataset.view===v)});
+  if (v==='preview') buildPreview();
+  if (v==='email') buildEmail();
+}
+
+// ——— LINE ITEMS ———
+function addItem() { items.push({id:nextId++,description:'',qty:1,price:0}); renderItems(); }
+function removeItem(id) { if(items.length<=1)return; items=items.filter(function(i){return i.id!==id}); renderItems(); recalc(); }
+function renderItems() {
+  var c=$('itemBox'); c.innerHTML='';
+  items.forEach(function(it){
+    var r=document.createElement('div'); r.className='irow';
+    r.innerHTML='<input class="d" placeholder="STEM Kit, 3D Print, Robotics Part\u2026" value="'+escA(it.description)+'" oninput="updItem('+it.id+',\'description\',this.value)">'
+      +'<input class="q" type="number" min="1" value="'+it.qty+'" oninput="updItem('+it.id+',\'qty\',this.value)">'
+      +'<input class="p" type="number" min="0" step="0.01" value="'+(it.price||'')+'" placeholder="0.00" oninput="updItem('+it.id+',\'price\',this.value)">'
+      +'<div class="iamt" id="a'+it.id+'">$'+(it.qty*it.price).toFixed(2)+'</div>'
+      +'<button class="xbtn" onclick="removeItem('+it.id+')">&times;</button>';
+    c.appendChild(r);
+  });
+}
+function updItem(id,f,v) {
+  var it=items.find(function(i){return i.id===id}); if(!it)return;
+  if(f==='description')it.description=v;
+  else if(f==='qty')it.qty=Math.max(1,parseInt(v)||1);
+  else if(f==='price')it.price=Math.max(0,parseFloat(v)||0);
+  $('a'+id).textContent='$'+(it.qty*it.price).toFixed(2); recalc();
+}
+function recalc() {
+  var v=vals();
+  $('dSub').textContent='$'+v.sub.toFixed(2);
+  $('dTax').textContent='$'+v.tax.toFixed(2);
+  $('dTot').textContent='$'+v.tot.toFixed(2);
+  $('dTaxLbl').textContent='Tax ('+(v.tr*100).toFixed(0)+'%)';
+}
+$('taxRate').addEventListener('change', recalc);
+
+// ——— SAVE ———
+async function saveAndPreview() {
+  if(saving)return;
+  var v=vals();
+  var data={invoiceNumber:invoiceNumber,invoiceDate:$('invDate').value,dueDate:$('dueDate').value,
+    customerName:$('custName').value,customerEmail:$('custEmail').value,customerAddress:$('custAddr').value,
+    items:items.map(function(i){return{description:i.description,qty:i.qty,price:i.price}}),
+    subtotal:v.sub,taxRate:v.tr,tax:v.tax,total:v.tot,notes:$('notes').value};
+  saved.push({number:invoiceNumber,customer:data.customerName,total:v.tot,date:data.invoiceDate});
+  $('hCount').textContent='('+saved.length+')'; renderHistory();
+  if(webAppUrl){
+    saving=true; var b=$('saveBtn'); b.innerHTML='<span class="spinner"></span> Saving...'; b.disabled=true;
+    var ok=await saveToSheet(data);
+    toast(ok?'Saved to Google Sheets!':'Saved locally. Sheet sync failed.',ok?'success':'error');
+    b.innerHTML='Save &amp; Preview &#9889;'; b.disabled=false; saving=false;
+  }
+  go('preview');
+}
+
+// ——— PREVIEW ———
+function buildPreview() {
+  var v=vals();
+  $('pNum').textContent=invoiceNumber;
+  var dt='Date: '+$('invDate').value, due=$('dueDate').value;
+  if(due)dt+='<br>Due: '+due;
+  $('pDates').innerHTML=dt;
+  var nm=$('custName').value||'\u2014',em=$('custEmail').value,ad=$('custAddr').value;
+  var bt='<strong>'+escH(nm)+'</strong>';
+  if(ad)bt+='<br>'+escH(ad); if(em)bt+='<br>'+escH(em);
+  $('pBillTo').innerHTML=bt;
+  var tb=$('pItems'); tb.innerHTML='';
+  items.forEach(function(it,i){
+    var r=document.createElement('tr'); if(i%2===1)r.style.background='#f9f8f6';
+    r.innerHTML='<td>'+( escH(it.description)||'\u2014')+'</td><td class="r">'+it.qty+'</td><td class="r mono">$'+it.price.toFixed(2)+'</td><td class="r mono" style="font-weight:600">$'+(it.qty*it.price).toFixed(2)+'</td>';
+    tb.appendChild(r);
+  });
+  $('pSub').textContent='$'+v.sub.toFixed(2);
+  $('pTaxLbl').textContent='Tax ('+(v.tr*100).toFixed(0)+'%)';
+  $('pTax').textContent='$'+v.tax.toFixed(2);
+  $('pTot').textContent='$'+v.tot.toFixed(2);
+  var nt=$('notes').value;
+  $('pNotes').innerHTML=nt?'<div class="pnotes">'+escH(nt)+'</div>':'';
+}
+
+// ——— HISTORY ———
+function renderHistory() {
+  var l=$('hList');
+  if(!saved.length){l.innerHTML='<div class="empty">No invoices saved yet. Create your first one! &#9889;</div>';return;}
+  l.innerHTML=saved.map(function(inv){
+    return '<div class="hrow"><div><span class="hnum">'+escH(inv.number)+'</span><span class="hcust">'+(escH(inv.customer)||'No name')+'</span></div>'
+      +'<div style="display:flex;align-items:center;gap:12px"><span class="hdate">'+escH(inv.date)+'</span><span class="htotal">$'+(typeof inv.total==='number'?inv.total.toFixed(2):inv.total)+'</span></div></div>';
+  }).join('');
+}
+
+// ——— RESET ———
+function resetForm() {
+  invoiceNumber=genInv(); $('topBadge').textContent=invoiceNumber;
+  $('invDate').value=today(); $('dueDate').value='';
+  $('custName').value=''; $('custEmail').value=''; $('custAddr').value='';
+  $('notes').value=''; $('taxRate').value='0.06';
+  items=[]; nextId=1; addItem(); recalc(); go('form');
+}
+
+// ——— EMAIL ———
+function buildEmail() {
+  var v=vals();
+  var nm=$('custName').value||'\u2014', em=$('custEmail').value, ad=$('custAddr').value;
+  var dt=$('invDate').value, due=$('dueDate').value, nt=$('notes').value;
+
+  var rows='';
+  items.forEach(function(it,i){
+    var bg=i%2===0?'#ffffff':'#f9f8f6';
+    rows+='<tr style="background:'+bg+'"><td style="padding:10px 16px;border-bottom:1px solid #e8e5df;font-size:14px;color:#1a1a1a">'+escH(it.description||'\u2014')+'</td>'
+      +'<td style="padding:10px 16px;border-bottom:1px solid #e8e5df;font-size:14px;text-align:right">'+it.qty+'</td>'
+      +'<td style="padding:10px 16px;border-bottom:1px solid #e8e5df;font-size:14px;text-align:right">$'+it.price.toFixed(2)+'</td>'
+      +'<td style="padding:10px 16px;border-bottom:1px solid #e8e5df;font-size:14px;text-align:right;font-weight:600">$'+(it.qty*it.price).toFixed(2)+'</td></tr>';
+  });
+
+  var badge=due?'<span style="display:inline-block;background:#fef3f4;color:#862633;font-size:12px;font-weight:600;padding:4px 12px;border-radius:20px">Due by '+due+'</span>':'';
+  var notesB=nt?'<div style="margin-top:28px;padding:14px 18px;background:#f5f2ec;border-left:4px solid #C2A04F;border-radius:0 6px 6px 0;font-size:13px;color:#555;line-height:1.55">'+escH(nt)+'</div>':'';
+
+  var h='<div style="max-width:640px;margin:0 auto;font-family:Helvetica,Arial,sans-serif">'
+    +'<div style="background:#0C2340;border-radius:12px 12px 0 0;padding:20px 28px;text-align:center"><span style="font-size:22px;font-weight:700;color:#fff"><span style="color:#C2A04F;font-size:26px">&#9889;</span> EPIC STEM</span><div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:4px">Entrepreneurship Projects in Innovation &amp; Collaboration</div></div>'
+    +'<div style="background:#fff;padding:32px 28px;border:1px solid #e8e5df;border-top:none">'
+      +'<div style="text-align:right;margin-bottom:24px"><div style="font-size:32px;font-weight:700;color:#0C2340">$'+v.tot.toFixed(2)+'</div><div style="font-size:13px;color:#999;margin-top:4px">Issued: '+dt+'</div><div style="font-size:13px;color:#C2A04F;font-weight:600;margin-top:2px">'+invoiceNumber+'</div>'+(badge?'<div style="margin-top:8px">'+badge+'</div>':'')+'</div>'
+      +'<div style="margin-bottom:24px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#999;margin-bottom:6px;font-weight:600">Bill To</div><div style="font-size:14px;line-height:1.6;color:#1a1a1a"><strong>'+escH(nm)+'</strong>'+(ad?'<br>'+escH(ad):'')+(em?'<br>'+escH(em):'')+'</div></div>'
+      +'<table style="width:100%;border-collapse:collapse;margin:20px 0"><thead><tr><th style="background:#0C2340;color:#fff;text-align:left;padding:10px 16px;font-size:10px;text-transform:uppercase;letter-spacing:1px">Description</th><th style="background:#0C2340;color:#fff;text-align:right;padding:10px 16px;font-size:10px;text-transform:uppercase;letter-spacing:1px">Qty</th><th style="background:#0C2340;color:#fff;text-align:right;padding:10px 16px;font-size:10px;text-transform:uppercase;letter-spacing:1px">Price</th><th style="background:#0C2340;color:#fff;text-align:right;padding:10px 16px;font-size:10px;text-transform:uppercase;letter-spacing:1px">Amount</th></tr></thead><tbody>'+rows+'</tbody></table>'
+      +'<div style="text-align:right;margin-top:16px"><table style="margin-left:auto;width:240px;border-collapse:collapse"><tr><td style="padding:7px 0;font-size:14px;color:#6b6b6b">Subtotal</td><td style="padding:7px 0;font-size:14px;text-align:right;color:#6b6b6b;border-bottom:1px solid #e8e5df">$'+v.sub.toFixed(2)+'</td></tr><tr><td style="padding:7px 0;font-size:14px;color:#6b6b6b">Tax ('+(v.tr*100).toFixed(0)+'%)</td><td style="padding:7px 0;font-size:14px;text-align:right;color:#6b6b6b;border-bottom:1px solid #e8e5df">$'+v.tax.toFixed(2)+'</td></tr><tr><td style="padding:12px 0 0;font-size:20px;font-weight:700;color:#0C2340;border-top:3px solid #0C2340">Total</td><td style="padding:12px 0 0;font-size:20px;font-weight:700;text-align:right;color:#0C2340;border-top:3px solid #0C2340">$'+v.tot.toFixed(2)+'</td></tr></table></div>'
+      +notesB
+    +'</div>'
+    +'<div style="background:#f9f8f6;padding:28px;border:1px solid #e8e5df;border-top:none;text-align:center"><div style="font-size:13px;color:#6b6b6b;margin-bottom:14px">Ready to pay? Click below to complete your payment securely.</div><a href="'+PAY_URL+'" target="_blank" style="display:inline-block;background:#862633;color:#fff;font-size:17px;font-weight:700;padding:16px 48px;border-radius:8px;text-decoration:none">Pay Now \u2014 $'+v.tot.toFixed(2)+'</a><div style="font-size:11px;color:#999;margin-top:12px">Powered by SuccessFund \u2022 Secure Online Payment</div></div>'
+    +'<div style="background:#0C2340;border-radius:0 0 12px 12px;padding:16px 28px;text-align:center"><div style="font-size:11px;color:rgba(255,255,255,0.5)">EPIC STEM \u2022 '+invoiceNumber+'</div></div>'
+    +'</div>';
+
+  lastEmailHtml = h;
+  $('emailWrap').innerHTML = h;
+}
+
+function copyEmailHtml() {
+  if(!lastEmailHtml){toast('Build an invoice first','info');return;}
+  try {
+    var bh=new Blob([lastEmailHtml],{type:'text/html'}), bp=new Blob([lastEmailHtml],{type:'text/plain'});
+    navigator.clipboard.write([new ClipboardItem({'text/html':bh,'text/plain':bp})]).then(function(){
+      var t=$('cpToast'); t.style.display='block'; setTimeout(function(){t.style.display='none'},2500);
+    });
+  } catch(e) {
+    var ta=document.createElement('textarea'); ta.value=lastEmailHtml;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    toast('HTML copied!','success');
+  }
+}
+
+function openMailClient() {
+  var nm=$('custName').value||'', em=$('custEmail').value||'', v=vals();
+  var subj=encodeURIComponent('Invoice '+invoiceNumber+' from EPIC STEM - $'+v.tot.toFixed(2));
+  var body=encodeURIComponent('Hi '+nm+',\n\nPlease find your invoice ('+invoiceNumber+') for $'+v.tot.toFixed(2)+' from EPIC STEM.\n\nPay online: '+PAY_URL+'\n\nThank you for your support!\n\nEPIC STEM');
+  window.location.href='mailto:'+encodeURIComponent(em)+'?subject='+subj+'&body='+body;
+}
+</script>
+</body>
+</html>
