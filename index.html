@@ -502,21 +502,35 @@ function syncUI(on) {
   var p = $('syncPill'); p.className = 'sync-pill ' + (on?'on':'off');
   $('syncLbl').textContent = on ? 'Synced' : 'Offline';
 }
+// ——— JSONP helper (bypasses CORS everywhere — file://, https://, etc.) ———
+function jsonp(url, ms) {
+  return new Promise(function(resolve, reject) {
+    var cb = '_cb_' + Math.random().toString(36).slice(2) + Date.now();
+    var timer = setTimeout(function(){ cleanup(); reject(new Error('Timed out')); }, ms||20000);
+    var el;
+    function cleanup() { clearTimeout(timer); delete window[cb]; if(el&&el.parentNode)el.parentNode.removeChild(el); }
+    window[cb] = function(d) { cleanup(); resolve(d); };
+    el = document.createElement('script');
+    el.src = url + (url.indexOf('?')>-1?'&':'?') + 'callback=' + cb;
+    el.onerror = function() { cleanup(); reject(new Error('Script load failed')); };
+    document.head.appendChild(el);
+  });
+}
+
 async function testConn() {
   toast('Testing...','info');
   try {
-    var r = await fetch(webAppUrl + '?action=ping'); var d = await r.json();
+    var d = await jsonp(webAppUrl + '?action=ping', 15000);
     toast('Connected! Status: ' + d.status, 'success');
   } catch(e) { toast('Failed: ' + e.message, 'error'); }
 }
 
-// ——— SHEETS SAVE/LOAD (clean fetch — works on HTTPS) ———
+// ——— SHEETS SAVE/LOAD (JSONP — works from any origin) ———
 async function saveToSheet(data) {
   if (!webAppUrl) return false;
   try {
     var payload = encodeURIComponent(JSON.stringify(data));
-    var r = await fetch(webAppUrl + '?action=save&payload=' + payload);
-    var d = await r.json();
+    var d = await jsonp(webAppUrl + '?action=save&payload=' + payload, 20000);
     return d && d.status === 'success';
   } catch(e) { toast('Save error: '+e.message,'error'); return false; }
 }
@@ -525,7 +539,7 @@ async function loadHistory() {
   if (!webAppUrl) { toast('Connect to Sheets first','info'); return; }
   $('rBtn').innerHTML = '<span class="spinner" style="width:10px;height:10px;border-width:1.5px"></span> Loading...';
   try {
-    var r = await fetch(webAppUrl + '?action=load'); var d = await r.json();
+    var d = await jsonp(webAppUrl + '?action=load', 20000);
     if (d.status==='success' && d.invoices) {
       saved = d.invoices.map(function(r){return{number:r['Invoice #']||'\u2014',customer:r['Customer']||'',total:parseFloat(String(r['Total']||'0').replace('$','')),date:r['Date']||''}});
       renderHistory(); $('hCount').textContent='('+saved.length+')';
