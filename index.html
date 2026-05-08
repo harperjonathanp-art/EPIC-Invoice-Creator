@@ -336,9 +336,6 @@
     <span>&#9989;</span>
     <div>
       <strong>Connected to Google Sheets!</strong> Invoices save automatically.
-      <span style="opacity:0.5;cursor:pointer;margin-left:6px;text-decoration:underline" onclick="testConn()">Test</span>
-      <span style="opacity:0.5;cursor:pointer;margin-left:6px;text-decoration:underline" onclick="openTestUrl()">Test in Browser</span>
-      <span style="opacity:0.5;cursor:pointer;margin-left:6px;text-decoration:underline" onclick="openTestJsonp()">Test JSONP</span>
       <span style="opacity:0.5;cursor:pointer;margin-left:6px;text-decoration:underline" onclick="disconnect()">Disconnect</span>
     </div>
   </div>
@@ -504,88 +501,37 @@ function syncUI(on) {
   var p = $('syncPill'); p.className = 'sync-pill ' + (on?'on':'off');
   $('syncLbl').textContent = on ? 'Synced' : 'Offline';
 }
-// ——— JSONP helper (robust script injection) ———
+// ——— JSONP helper (bypasses CORS from any origin) ———
 function jsonp(url, ms) {
   return new Promise(function(resolve, reject) {
     var cb = '_cb' + Math.floor(Math.random()*99999) + '_' + Date.now();
     var done = false;
-    var timer = setTimeout(function(){ finish(null, new Error('Timed out after '+(ms/1000)+'s')); }, ms||20000);
+    var timer = setTimeout(function(){ finish(null, new Error('Request timed out')); }, ms||20000);
     var el;
-
     function finish(data, err) {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      delete window[cb];
+      if (done) return; done = true; clearTimeout(timer); delete window[cb];
       if (el) { try { el.parentNode.removeChild(el); } catch(x){} }
       if (err) reject(err); else resolve(data);
     }
-
-    window[cb] = function(d) {
-      console.log('[JSONP] Callback fired with:', d);
-      finish(d, null);
-    };
-
+    window[cb] = function(d) { finish(d, null); };
     var fullUrl = url + (url.indexOf('?') > -1 ? '&' : '?') + 'callback=' + cb;
-    console.log('[JSONP] Loading:', fullUrl);
-
     el = document.createElement('script');
     el.type = 'text/javascript';
     el.async = true;
     el.src = fullUrl;
     el.onload = function() {
-      console.log('[JSONP] Script loaded successfully');
-      // Give the callback a moment to fire if it hasn't yet
       setTimeout(function() {
-        if (!done) {
-          console.warn('[JSONP] Script loaded but callback never fired');
-          finish(null, new Error('Script loaded but callback did not fire — check browser console for errors'));
-        }
+        if (!done) finish(null, new Error('Script loaded but callback did not fire'));
       }, 2000);
     };
-    el.onerror = function(evt) {
-      console.error('[JSONP] Script onerror fired:', evt);
-      // Try fallback: fetch with no-cors as last resort
-      console.log('[JSONP] Trying fetch fallback...');
-      fetch(fullUrl, { mode: 'no-cors' }).then(function() {
-        console.log('[JSONP] Fetch completed (opaque response)');
-        finish(null, new Error('Script blocked but fetch worked — likely a browser extension or MIME issue. Check for ad-blockers.'));
-      }).catch(function(fe) {
-        console.error('[JSONP] Fetch also failed:', fe);
-        finish(null, new Error('Script and fetch both failed — check for ad-blockers or network issues'));
-      });
-    };
-
-    // Classic injection pattern (same method Google Analytics uses)
+    el.onerror = function() { finish(null, new Error('Could not connect to Google Sheets')); };
     var first = document.getElementsByTagName('script')[0];
-    if (first && first.parentNode) {
-      first.parentNode.insertBefore(el, first);
-    } else {
-      document.body.appendChild(el);
-    }
+    if (first && first.parentNode) first.parentNode.insertBefore(el, first);
+    else document.body.appendChild(el);
   });
 }
 
-function openTestUrl() {
-  // Test 1: plain JSON (no callback)
-  window.open(webAppUrl + '?action=ping', '_blank');
-}
-function openTestJsonp() {
-  // Test 2: JSONP (with callback) — should show: test({"status":"success",...});
-  window.open(webAppUrl + '?action=ping&callback=test', '_blank');
-}
-
-async function testConn() {
-  toast('Testing...','info');
-  try {
-    var d = await jsonp(webAppUrl + '?action=ping', 15000);
-    toast('Connected! Status: ' + d.status, 'success');
-  } catch(e) {
-    toast('Failed: ' + e.message + ' — try "Test in Browser" to see what Google returns', 'error');
-  }
-}
-
-// ——— SHEETS SAVE/LOAD (JSONP — works from any origin) ———
+// ——— SHEETS SAVE/LOAD ———
 async function saveToSheet(data) {
   if (!webAppUrl) return false;
   try {
