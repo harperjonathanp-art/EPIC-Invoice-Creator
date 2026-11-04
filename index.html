@@ -213,8 +213,15 @@
   #emailWrap { max-width: 660px; margin: 0 auto; }
 
   /* === History === */
-  .hrow { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .hrow {
+    display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+    width: 100%; padding: 12px var(--space-2); border: none; border-bottom: 1px solid var(--border); border-radius: 0;
+    background: none; text-align: left; cursor: pointer; transition: background 150ms;
+  }
   .hrow:last-child { border-bottom: none; }
+  .hrow:hover { background: var(--surface-raised); }
+  .hopen { display: inline-flex; align-items: center; gap: var(--space-1); font-size: 14px; font-weight: 600; color: var(--cardinal); }
+  .hopen .ico { width: 16px; height: 16px; }
   .hnum { font-weight: 600; margin-right: var(--space-3); font-variant-numeric: tabular-nums; }
   .hcust { color: var(--ink-muted); }
   .hright { display: flex; align-items: center; gap: var(--space-4); }
@@ -307,15 +314,15 @@
     <div class="card">
       <div class="card-head">
         <div class="eyebrow">Invoice details</div>
-        <div class="hint">Invoice <strong class="num" id="formInvNum"></strong></div>
+        <div class="hint"><span id="editNote"></span>Invoice <strong class="num" id="formInvNum"></strong></div>
       </div>
       <div class="row">
         <div class="field"><label class="lbl" for="invDate">Invoice date</label><input type="date" id="invDate"></div>
         <div class="field"><label class="lbl" for="dueDate">Due date</label><input type="date" id="dueDate"></div>
         <div class="field"><label class="lbl" for="taxRate">Tax rate</label>
           <select id="taxRate">
-            <option value="0">No tax</option>
-            <option value="0.06" selected>6% GA sales tax</option>
+            <option value="0" selected>No tax</option>
+            <option value="0.06">6% GA sales tax</option>
             <option value="0.07">7%</option><option value="0.08">8%</option><option value="0.1">10%</option>
           </select>
         </div>
@@ -472,7 +479,7 @@ function busyBtn(id, label) { var b = $(id); b.disabled = true; b.innerHTML = '<
 // ——— STATE ———
 var webAppUrl = SHEET_URL;
 var items = [], credits = [], nextId = 1, invoiceNumber = '', saved = [], saving = false;
-var lastSavedSig = '', lastEmailHtml = '', numberIsTemp = false, claiming = false;
+var lastSavedSig = '', lastEmailHtml = '', numberIsTemp = false, claiming = false, reopened = false, historyLoaded = false;
 var pdfCache = { sig: '', blob: null };
 
 // ——— HELPERS ———
@@ -562,27 +569,29 @@ renderItems(); renderCredits(); recalc(); go('form');
 function draftData() {
   return { invoiceNumber: invoiceNumber, invDate: $('invDate').value, dueDate: $('dueDate').value, taxRate: $('taxRate').value,
     custName: $('custName').value, custEmail: $('custEmail').value, custAddr: $('custAddr').value, notes: $('notes').value,
-    items: items, credits: credits, lastSavedSig: lastSavedSig, numberIsTemp: numberIsTemp };
+    items: items, credits: credits, lastSavedSig: lastSavedSig, numberIsTemp: numberIsTemp, reopened: reopened };
 }
 function changed() { lsSet(DRAFT_KEY, JSON.stringify(draftData())); updateSaveState(); }
 function restoreDraft() {
   var d; try { d = JSON.parse(lsGet(DRAFT_KEY) || 'null'); } catch (e) { d = null; }
   if (!d || !d.invoiceNumber) return false;
   invoiceNumber = d.invoiceNumber;
-  $('invDate').value = d.invDate || today(); $('dueDate').value = d.dueDate || ''; $('taxRate').value = d.taxRate || '0.06';
+  $('invDate').value = d.invDate || today(); $('dueDate').value = d.dueDate || ''; $('taxRate').value = d.taxRate || '0';
   $('custName').value = d.custName || ''; $('custEmail').value = d.custEmail || ''; $('custAddr').value = d.custAddr || ''; $('notes').value = d.notes || '';
   items = (d.items || []).map(function (i) { return { id: nextId++, description: i.description || '', qty: Number(i.qty) || 1, price: Number(i.price) || 0 }; });
   credits = (d.credits || []).map(function (c) { return { id: nextId++, description: c.description || '', amount: Number(c.amount) || 0 }; });
   if (!items.length) items.push({ id: nextId++, description: '', qty: 1, price: 0 });
   lastSavedSig = d.lastSavedSig || '';
   numberIsTemp = !!d.numberIsTemp && !lastSavedSig; showNumber();
+  reopened = !!d.reopened; showEditNote();
   return true;
 }
 function newInvoiceState() {
   invoiceNumber = genInv(); numberIsTemp = true; showNumber();
-  $('invDate').value = today(); $('dueDate').value = plusDays(30); $('taxRate').value = '0.06';
+  $('invDate').value = today(); $('dueDate').value = plusDays(30); $('taxRate').value = '0';
   $('custName').value = ''; $('custEmail').value = ''; $('custAddr').value = ''; $('notes').value = '';
   items = [{ id: nextId++, description: '', qty: 1, price: 0 }]; credits = []; lastSavedSig = '';
+  reopened = false; showEditNote();
   ['custName'].forEach(function (id) { $(id).removeAttribute('aria-invalid'); });
   claimNumber();
 }
@@ -701,9 +710,9 @@ async function loadHistory() {
       saved = d.invoices.map(function (r) {
         var bal = r['Balance Due'], tot = r['Total'];
         return { number: r['Invoice #'] || '—', customer: r['Customer'] || '', date: r['Date'] || '',
-          total: parseMoney(bal !== undefined && bal !== '' ? bal : tot), credited: !!(r['Credits'] && String(r['Credits']).trim()) };
+          total: parseMoney(bal !== undefined && bal !== '' ? bal : tot), credited: !!(r['Credits'] && String(r['Credits']).trim()), row: r };
       }).reverse();
-      renderHistory(); toast('Loaded ' + saved.length + ' invoices', 'success');
+      historyLoaded = true; renderHistory(); toast('Loaded ' + saved.length + ' invoices', 'success');
     } else toast('Load failed: ' + (d.message || 'unknown error'), 'error');
   } catch (e) { toast('Load failed: ' + e.message, 'error'); }
   $('rBtn').disabled = false; setBtn('rBtn', 'refresh', 'Refresh from Sheets');
@@ -716,7 +725,7 @@ function go(v) {
   document.querySelectorAll('.tab').forEach(function (t) { if (t.dataset.view === v) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current'); });
   if (v === 'preview') buildPreview();
   if (v === 'email') { buildPreview(); buildEmail(); warmPdf(); }
-  if (v === 'history') renderHistory();
+  if (v === 'history') { renderHistory(); if (!historyLoaded && webAppUrl) loadHistory(); }
   updateSaveState();
   window.scrollTo(0, 0);
 }
@@ -808,7 +817,7 @@ async function saveAndPreview() {
   var s = sig();
   if (s === lastSavedSig) { toast('Already saved', 'info'); go('preview'); return; }
   var data = invoiceData(), v = vals();
-  var local = { number: invoiceNumber, customer: data.customerName, total: v.bal, date: data.invoiceDate, credited: !!usedCredits().length };
+  var local = { number: invoiceNumber, customer: data.customerName, total: v.bal, date: data.invoiceDate, credited: !!usedCredits().length, data: data };
   saved = saved.filter(function (x) { return x.number !== invoiceNumber; }); saved.unshift(local);
   if (webAppUrl) {
     saving = true; busyBtn('saveBtn', 'Saving…');
@@ -1041,17 +1050,64 @@ function renderHistory() {
   $('hCount').textContent = saved.length ? '(' + saved.length + ')' : '';
   var l = $('hList');
   if (!saved.length) { l.innerHTML = '<div class="empty">No invoices yet. ' + (webAppUrl ? 'Press Refresh from Sheets to load the shared log.' : '') + '</div>'; return; }
-  l.innerHTML = saved.map(function (inv) {
-    return '<div class="hrow"><div><span class="hnum">' + esc(inv.number) + '</span><span class="hcust">' + (esc(inv.customer) || 'No name') + '</span></div>'
-      + '<div class="hright"><span class="hdate">' + esc(fmtDate(inv.date)) + '</span><span class="htotal">' + money(Number(inv.total) || 0) + '</span></div></div>';
+  l.innerHTML = saved.map(function (inv, i) {
+    return '<button class="hrow" onclick="openInvoice(' + i + ')" aria-label="Open invoice ' + esc(inv.number) + ' for ' + (esc(inv.customer) || 'no name') + '">'
+      + '<div><span class="hnum">' + esc(inv.number) + '</span><span class="hcust">' + (esc(inv.customer) || 'No name') + '</span></div>'
+      + '<div class="hright"><span class="hdate">' + esc(fmtDate(inv.date)) + '</span><span class="htotal">' + money(Number(inv.total) || 0) + '</span>'
+      + '<span class="hopen">' + ico('pencil') + 'Open</span></div></button>';
   }).join('');
+}
+
+// ——— REOPEN A SAVED INVOICE ———
+function showEditNote() { $('editNote').textContent = reopened ? 'Editing a saved invoice · ' : ''; }
+function isDirty() { return sig() !== lastSavedSig && ($('custName').value.trim() || items.some(function (i) { return i.price > 0; })); }
+function num(x) { return parseMoney(x); }
+// Invoices saved before the Invoice Data column existed: rebuild them from the text columns
+function legacyInvoice(r) {
+  var items = String(r['Items'] || '').split(' | ').filter(Boolean).map(function (t) {
+    var m = /^(\d+)x (.*) @ \$([\d,]*\.?\d*)$/.exec(t.trim());
+    return m ? { description: m[2], qty: +m[1], price: num(m[3]) } : { description: t.trim(), qty: 1, price: 0 };
+  });
+  var credits = String(r['Credits'] || '').split(' | ').filter(Boolean).map(function (t) {
+    var m = /^-?\$?([\d,]*\.?\d*)(?: \((.*)\))?$/.exec(t.trim());
+    return m ? { description: m[2] || '', amount: num(m[1]) } : { description: t.trim(), amount: 0 };
+  });
+  var tr = r['Tax Rate'];
+  tr = typeof tr === 'number' ? (tr > 1 ? tr / 100 : tr) : (parseFloat(tr) || 0) / 100;
+  return { invoiceDate: r['Date'] || '', dueDate: r['Due Date'] || '', taxRate: tr,
+    customerName: r['Customer'] || '', customerEmail: r['Email'] || '', customerAddress: r['Address'] || '',
+    items: items, credits: credits, notes: r['Notes'] || '', legacy: true };
+}
+function invoiceFromEntry(inv) {
+  if (inv.data) return inv.data;
+  var r = inv.row || {}, d = null;
+  try { d = JSON.parse(r['Invoice Data'] || 'null'); } catch (e) { d = null; }
+  return d || legacyInvoice(r);
+}
+function openInvoice(i) {
+  var inv = saved[i]; if (!inv) return;
+  if (isDirty() && !confirm('Open ' + inv.number + '? Your changes to the invoice you’re working on aren’t saved to Sheets.')) return;
+  var d = invoiceFromEntry(inv);
+  invoiceNumber = String(inv.number); numberIsTemp = false; reopened = true;
+  $('invDate').value = String(d.invoiceDate || '').slice(0, 10); $('dueDate').value = String(d.dueDate || '').slice(0, 10);
+  var tv = String(Math.round((Number(d.taxRate) || 0) * 10000) / 10000), sel = $('taxRate');
+  if (![].some.call(sel.options, function (o) { return o.value === tv; })) sel.add(new Option(r2(tv * 100) + '%', tv));
+  sel.value = tv;
+  $('custName').value = d.customerName || ''; $('custEmail').value = d.customerEmail || ''; $('custAddr').value = d.customerAddress || '';
+  $('notes').value = d.notes || '';
+  items = (d.items || []).map(function (x) { return { id: nextId++, description: String(x.description || ''), qty: Math.max(1, parseInt(x.qty, 10) || 1), price: Math.max(0, Number(x.price) || 0) }; });
+  if (!items.length) items.push({ id: nextId++, description: '', qty: 1, price: 0 });
+  credits = (d.credits || []).map(function (x) { return { id: nextId++, description: String(x.description || ''), amount: Math.abs(Number(x.amount) || 0) }; });
+  ['custName'].forEach(function (id) { $(id).removeAttribute('aria-invalid'); });
+  renderItems(); renderCredits(); recalc(); showNumber(); showEditNote();
+  lastSavedSig = sig(); pdfCache = { sig: '', blob: null };
+  changed(); go('form');
+  toast(d.legacy ? 'Opened ' + invoiceNumber + '. It was saved before line items were stored separately, so check the items.' : 'Opened ' + invoiceNumber + '. Saving updates its row in the sheet.', d.legacy ? 'info' : 'success', d.legacy ? 8000 : 4500);
 }
 
 // ——— NEW INVOICE ———
 function resetForm() {
-  if (!lastSavedSig && (($('custName').value.trim()) || items.some(function (i) { return i.price > 0; }))) {
-    if (!confirm('Start a new invoice? This one hasn’t been saved to Sheets.')) return;
-  }
+  if (isDirty() && !confirm('Start a new invoice? This one has changes that aren’t saved to Sheets.')) return;
   newInvoiceState(); renderItems(); renderCredits(); recalc(); changed(); pdfCache = { sig: '', blob: null };
   go('form'); $('custName').focus();
 }

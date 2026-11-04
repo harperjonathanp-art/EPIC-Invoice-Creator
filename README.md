@@ -10,7 +10,9 @@ A browser-based invoice generator for the EPIC STEM program at Mill Creek High S
 - **Download PDF**: makes a real one-page letter-size PDF, with a working payment link in it
 - **Email with PDF attached**: on devices with a share menu (iPad, iPhone, Mac Safari, Chromebook, Windows Chrome/Edge) this opens the share menu with the PDF already attached, so you pick Mail, Outlook or Gmail. On other browsers it downloads the PDF and opens a new email with the text filled in, and you drag the PDF in. A plain `mailto:` link can't attach files on its own, so that's the limit of what a web page can do
 - **Copy email HTML**: a branded invoice with a Pay button to paste into the body of an email
-- **Google Sheets log** that every teacher shares, plus a History tab
+- **Google Sheets log** that every teacher shares, plus a History tab. Click an invoice in History to reopen it, edit it and send it again. Saving updates its row in the sheet
+- **Invoice numbers in order** (EPIC-2026-0001, -0002, …), handed out by the sheet so two people never get the same one
+- **No tax by default**. Choose a rate from the Tax rate menu when an invoice needs one
 - **Draft autosave**: a refresh or a closed tab doesn't lose the invoice you're working on
 - Mill Creek High School branding (Cardinal, Vegas Gold and Navy, Jost type, the MC Oval), and it works on phones
 
@@ -22,7 +24,7 @@ The page works with the old script, but credits and balance due are only logged 
 2. Replace everything with the contents of `google-apps-script.js` and save
 3. **Deploy → Manage deployments → pencil icon → Version: New version → Deploy**
 
-Doing it this way keeps the same URL, so nothing in `index.html` changes. The script adds the new columns (Credits, Balance Due, Created By) to Row 1 by itself.
+Doing it this way keeps the same URL, so nothing in `index.html` changes. The script adds any new columns (Credits, Balance Due, Created By, Invoice Data) to Row 1 by itself. **Invoice Data** holds each invoice in a form the page can read back, which is how History reopens it. Leave that column in place; you can hide it.
 
 ## First-time Google Sheets setup
 

@@ -18,7 +18,8 @@
 //
 //  Columns it writes (by header name, so the order in your sheet can be anything):
 //  Invoice # | Date | Due Date | Customer | Email | Address | Items | Subtotal |
-//  Tax Rate | Tax | Total | Notes | Saved At | Credits | Balance Due | Created By
+//  Tax Rate | Tax | Total | Notes | Saved At | Credits | Balance Due | Created By |
+//  Invoice Data (the whole invoice as JSON, so History can reopen it — leave it be)
 //
 //  Saving an invoice number that's already in the sheet updates that row
 //  instead of adding a duplicate.
@@ -29,7 +30,7 @@
 // =====================================================
 
 var HEADERS = ['Invoice #', 'Date', 'Due Date', 'Customer', 'Email', 'Address', 'Items',
-  'Subtotal', 'Tax Rate', 'Tax', 'Total', 'Notes', 'Saved At', 'Credits', 'Balance Due', 'Created By'];
+  'Subtotal', 'Tax Rate', 'Tax', 'Total', 'Notes', 'Saved At', 'Credits', 'Balance Due', 'Created By', 'Invoice Data'];
 
 function doGet(e) {
   var p = (e && e.parameter) || {};
@@ -131,7 +132,12 @@ function rowValues(d) {
     'Saved At': new Date().toLocaleString(),
     'Credits': credits,
     'Balance Due': money(d.balanceDue != null ? d.balanceDue : d.total),
-    'Created By': d.createdBy || ''
+    'Created By': d.createdBy || '',
+    'Invoice Data': JSON.stringify({
+      v: 1, invoiceDate: d.invoiceDate || '', dueDate: d.dueDate || '', taxRate: Number(d.taxRate) || 0,
+      customerName: d.customerName || '', customerEmail: d.customerEmail || '', customerAddress: d.customerAddress || '',
+      items: d.items || [], credits: d.credits || [], notes: d.notes || ''
+    })
   };
 }
 
