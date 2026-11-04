@@ -38,7 +38,7 @@ Doing it this way keeps the same URL, so nothing in `index.html` changes. The sc
 | Setting | What it does |
 | --- | --- |
 | `SHEET_URL` | The Apps Script Web App URL invoices log to |
-| `DEFAULT_PAY_URL` | The payment link a new device starts with (each teacher can change theirs) |
+| `DEFAULT_PAY_URL` | A payment link to pre-fill on new devices. Empty by default; each teacher enters their own |
 | `TAGLINE` | The line under "EPIC STEM" on the invoice |
 
 ## Hosting on GitHub Pages
