@@ -2,97 +2,79 @@
 //  EPIC STEM Invoice Logger — Google Apps Script
 // =====================================================
 //
-//  SETUP INSTRUCTIONS:
+//  SETUP (first time):
 //
-//  1. Go to https://sheets.google.com and create a new spreadsheet
-//  2. Name it "EPIC STEM Invoices" (or whatever you like)
-//  3. In Row 1, add these headers (exactly as written):
-//     A1: Invoice #
-//     B1: Date
-//     C1: Due Date
-//     D1: Customer
-//     E1: Email
-//     F1: Address
-//     G1: Items
-//     H1: Subtotal
-//     I1: Tax Rate
-//     J1: Tax
-//     K1: Total
-//     L1: Notes
-//     M1: Saved At
+//  1. Create a Google Sheet (e.g. "EPIC STEM Invoices"). You don't need to type
+//     headers — the script adds any missing ones to Row 1 the first time it saves.
+//  2. Click Extensions > Apps Script
+//  3. Delete any code in the editor and paste this ENTIRE file
+//  4. Click Deploy > New deployment, type "Web app"
+//     Execute as: Me · Who has access: Anyone
+//  5. Click Deploy and copy the Web App URL into SHEET_URL in index.html
 //
-//  4. Click Extensions > Apps Script
-//  5. Delete any code in the editor and paste this ENTIRE file
-//  6. Click Deploy > New Deployment
-//  7. Set type to "Web app"
-//  8. Set "Execute as" to your account
-//  9. Set "Who has access" to "Anyone"
-//  10. Click Deploy and copy the new URL
+//  UPDATING THIS CODE LATER (keeps the same URL):
+//  Deploy > Manage deployments > pencil icon > Version: "New version" > Deploy.
+//  (Deploy > New deployment also works, but gives you a NEW URL to paste.)
 //
-//  *** IMPORTANT: Every time you update this code, you must
-//  *** create a NEW deployment for changes to go live.
-//  *** (Deploy > New Deployment, NOT Manage Deployments)
+//  Columns it writes (by header name, so the order in your sheet can be anything):
+//  Invoice # | Date | Due Date | Customer | Email | Address | Items | Subtotal |
+//  Tax Rate | Tax | Total | Notes | Saved At | Credits | Balance Due | Created By
 //
+//  Saving an invoice number that's already in the sheet updates that row
+//  instead of adding a duplicate.
 // =====================================================
 
+var HEADERS = ['Invoice #', 'Date', 'Due Date', 'Customer', 'Email', 'Address', 'Items',
+  'Subtotal', 'Tax Rate', 'Tax', 'Total', 'Notes', 'Saved At', 'Credits', 'Balance Due', 'Created By'];
+
 function doGet(e) {
-  var action = (e.parameter.action || 'load').toLowerCase();
-  var callback = e.parameter.callback || '';
+  var p = (e && e.parameter) || {};
+  var action = String(p.action || 'load').toLowerCase();
+  var callback = p.callback || '';
 
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
 
     // ——— PING (test connection) ———
     if (action === 'ping') {
-      return respond(callback, { status: 'success', action: 'ping', message: 'Connected!' });
+      return respond(callback, { status: 'success', action: 'ping', message: 'Connected' });
     }
 
-    // ——— SAVE an invoice ———
+    // ——— SAVE (insert, or update the row with the same invoice #) ———
     if (action === 'save') {
-      var raw = e.parameter.payload || '{}';
-      var data = JSON.parse(raw);
-
-      var itemsText = (data.items || []).map(function(item) {
-        return item.qty + 'x ' + item.description + ' @ $' + Number(item.price).toFixed(2);
-      }).join(' | ');
-
-      sheet.appendRow([
-        data.invoiceNumber || '',
-        data.invoiceDate || '',
-        data.dueDate || '',
-        data.customerName || '',
-        data.customerEmail || '',
-        data.customerAddress || '',
-        itemsText,
-        '$' + Number(data.subtotal || 0).toFixed(2),
-        (Number(data.taxRate || 0) * 100).toFixed(0) + '%',
-        '$' + Number(data.tax || 0).toFixed(2),
-        '$' + Number(data.total || 0).toFixed(2),
-        data.notes || '',
-        new Date().toLocaleString()
-      ]);
-
-      return respond(callback, { status: 'success', action: 'save' });
+      var data = JSON.parse(p.payload || '{}');
+      var lock = LockService.getScriptLock();
+      lock.waitLock(20000);
+      try {
+        var headers = ensureHeaders(sheet);
+        var values = rowValues(data);
+        var row = headers.map(function (h) { return values.hasOwnProperty(h) ? values[h] : ''; });
+        var existing = findRow(sheet, headers, data.invoiceNumber);
+        var at = existing || sheet.getLastRow() + 1;
+        sheet.getRange(at, 1, 1, row.length).setValues([row]);
+        ['Subtotal', 'Tax', 'Total', 'Balance Due'].forEach(function (h) {
+          sheet.getRange(at, headers.indexOf(h) + 1).setNumberFormat('$#,##0.00');
+        });
+      } finally {
+        lock.releaseLock();
+      }
+      return respond(callback, { status: 'success', action: 'save', updated: !!existing });
     }
 
     // ——— LOAD invoice history ———
-    var allData = sheet.getDataRange().getValues();
-    var headers = allData[0];
+    var all = sheet.getDataRange().getValues();
+    var head = all[0] || [];
     var rows = [];
-
-    for (var i = 1; i < allData.length; i++) {
-      var row = {};
-      for (var j = 0; j < headers.length; j++) {
-        // Convert dates to strings so JSON.stringify doesn't mangle them
-        var val = allData[i][j];
-        if (val instanceof Date) {
-          val = Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        }
-        row[headers[j]] = val;
+    for (var i = 1; i < all.length; i++) {
+      var r = {};
+      for (var j = 0; j < head.length; j++) {
+        var val = all[i][j];
+        // Dates become strings so JSON doesn't mangle them
+        if (val instanceof Date) val = Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        r[head[j]] = val;
       }
-      rows.push(row);
+      rows.push(r);
     }
-
     return respond(callback, { status: 'success', invoices: rows });
 
   } catch (err) {
@@ -100,19 +82,65 @@ function doGet(e) {
   }
 }
 
-// Helper: Returns JSONP if callback provided, otherwise plain JSON
+function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+function rowValues(d) {
+  var items = (d.items || []).map(function (it) {
+    return it.qty + 'x ' + it.description + ' @ $' + Number(it.price).toFixed(2);
+  }).join(' | ');
+  var credits = (d.credits || []).map(function (c) {
+    return '$' + Number(c.amount).toFixed(2) + (c.description ? ' (' + c.description + ')' : '');
+  }).join(' | ');
+  return {
+    'Invoice #': d.invoiceNumber || '',
+    'Date': d.invoiceDate || '',
+    'Due Date': d.dueDate || '',
+    'Customer': d.customerName || '',
+    'Email': d.customerEmail || '',
+    'Address': d.customerAddress || '',
+    'Items': items,
+    'Subtotal': money(d.subtotal),
+    'Tax Rate': (Number(d.taxRate || 0) * 100).toFixed(0) + '%',
+    'Tax': money(d.tax),
+    'Total': money(d.total),
+    'Notes': d.notes || '',
+    'Saved At': new Date(),
+    'Credits': credits,
+    'Balance Due': money(d.balanceDue != null ? d.balanceDue : d.total),
+    'Created By': d.createdBy || ''
+  };
+}
+
+// Adds any missing headers to the end of Row 1 and returns the full header list.
+function ensureHeaders(sheet) {
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var current = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  if (current.length === 1 && current[0] === '') current = [];
+  var missing = HEADERS.filter(function (h) { return current.indexOf(h) === -1; });
+  if (missing.length) {
+    sheet.getRange(1, current.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    current = current.concat(missing);
+  }
+  return current;
+}
+
+// Returns the sheet row number holding this invoice #, or 0.
+function findRow(sheet, headers, invoiceNumber) {
+  if (!invoiceNumber || sheet.getLastRow() < 2) return 0;
+  var col = headers.indexOf('Invoice #') + 1;
+  var ids = sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(invoiceNumber)) return i + 2;
+  }
+  return 0;
+}
+
+// Returns JSONP when a callback is given (that's how the page talks to it), plain JSON otherwise
 function respond(callback, data) {
   var json = JSON.stringify(data);
-
   if (callback) {
-    // JSONP: wrap in function call, return as JavaScript
-    // This is what makes it work from file:// origins
-    return ContentService
-      .createTextOutput(callback + '(' + json + ');')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    if (!/^[A-Za-z_$][\w$]*$/.test(callback)) callback = 'callback';
+    return ContentService.createTextOutput(callback + '(' + json + ');').setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-
-  return ContentService
-    .createTextOutput(json)
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
