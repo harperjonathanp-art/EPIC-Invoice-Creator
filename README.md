@@ -1,55 +1,48 @@
-# ⚡ EPIC STEM Invoice Creator
+# EPIC STEM Invoice Creator
 
-A lightweight, browser-based invoice generator for the EPIC STEM program. No backend required — just a single HTML file hosted on GitHub Pages with optional Google Sheets integration.
+A browser-based invoice generator for the EPIC STEM program at Mill Creek High School. It's one HTML file hosted on GitHub Pages, with optional Google Sheets logging.
 
 ## Features
 
-- **Create invoices** with customer details, line items, tax rates, and notes
-- **Print-ready preview** with clean formatting
-- **Email tab** generates a styled HTML invoice with a **Pay Now** button linking to SuccessFund
-- **Google Sheets sync** — invoices auto-save to a shared spreadsheet
-- **Invoice history** pulled from the sheet so all teachers see the same data
-- **Mobile responsive** — works on phones and tablets
+- **Create invoices** with customer details, line items, tax and notes
+- **Payments and credits**: list deposits, scholarships or earlier credits. They come off the total after tax, and the invoice shows a balance due (or "Paid in full")
+- **How to pay**: an online payment link (for example SuccessFund) and/or who to make checks payable to and where to send them. Leave a box empty to leave that option off. These settings, and your name and email, are remembered on each device
+- **Download PDF**: makes a real one-page letter-size PDF, with a working payment link in it
+- **Email with PDF attached**: on devices with a share menu (iPad, iPhone, Mac Safari, Chromebook, Windows Chrome/Edge) this opens the share menu with the PDF already attached, so you pick Mail, Outlook or Gmail. On other browsers it downloads the PDF and opens a new email with the text filled in, and you drag the PDF in. A plain `mailto:` link can't attach files on its own, so that's the limit of what a web page can do
+- **Copy email HTML**: a branded invoice with a Pay button to paste into the body of an email
+- **Google Sheets log** that every teacher shares, plus a History tab
+- **Draft autosave**: a refresh or a closed tab doesn't lose the invoice you're working on
+- Mill Creek High School branding (Cardinal, Vegas Gold and Navy, Jost type, the MC Oval), and it works on phones
 
-## Quick Start
+## Updating the Google Sheet script (needed for credits)
 
-**For teachers:** Just visit the hosted URL — no installation needed.
+The page works with the old script, but credits and balance due are only logged once the new script is live, and only the new script updates a row when you re-save an invoice (the old one adds a duplicate row).
 
-## Google Sheets Setup (One-Time)
+1. Open the sheet, then **Extensions → Apps Script**
+2. Replace everything with the contents of `google-apps-script.js` and save
+3. **Deploy → Manage deployments → pencil icon → Version: New version → Deploy**
 
-1. Create a new Google Sheet named **"EPIC STEM Invoices"**
-2. Add these headers in Row 1:
+Doing it this way keeps the same URL, so nothing in `index.html` changes. The script adds the new columns (Credits, Balance Due, Created By) to Row 1 by itself.
 
-   | A | B | C | D | E | F | G | H | I | J | K | L | M |
-   |---|---|---|---|---|---|---|---|---|---|---|---|---|
-   | Invoice # | Date | Due Date | Customer | Email | Address | Items | Subtotal | Tax Rate | Tax | Total | Notes | Saved At |
+## First-time Google Sheets setup
 
-3. Go to **Extensions → Apps Script**
-4. Paste the contents of `google-apps-script.js`
-5. Click **Deploy → New Deployment**
-6. Set type: **Web app**, Execute as: **Me**, Who has access: **Anyone**
-7. Copy the deployment URL
-8. Update the `SHEET_URL` variable in `index.html`
+1. Create a Google Sheet (for example "EPIC STEM Invoices"). Headers are added automatically
+2. **Extensions → Apps Script**, paste in `google-apps-script.js`
+3. **Deploy → New deployment**, type **Web app**, Execute as **Me**, Who has access **Anyone**
+4. Copy the Web App URL into `SHEET_URL` in `index.html`
 
-> **Important:** If you update the Apps Script code, you must create a **new** deployment (Deploy → New Deployment). Editing an existing deployment does NOT update the live code.
+## Settings in `index.html`
+
+| Setting | What it does |
+| --- | --- |
+| `SHEET_URL` | The Apps Script Web App URL invoices log to |
+| `DEFAULT_PAY_URL` | The payment link a new device starts with (each teacher can change theirs) |
+| `TAGLINE` | The line under "EPIC STEM" on the invoice |
 
 ## Hosting on GitHub Pages
 
-1. Create a new GitHub repository
-2. Upload `index.html` and `google-apps-script.js`
-3. Go to **Settings → Pages**
-4. Set Source to **Deploy from a branch**, select `main`, folder `/ (root)`
-5. Your invoice creator will be live at `https://yourusername.github.io/repo-name/`
+**Settings → Pages**, Source **Deploy from a branch**, branch `main`, folder `/ (root)`. Keep the `assets` folder next to `index.html`: the email version of the invoice loads the logo PNG from there (email apps can't show the inline logo), so the email logo only shows when the page is opened from the hosted site.
 
-## Color Scheme
+## Brand
 
-Built with Mill Creek High School's brand colors:
-
-- **Pantone 289 C** (#0C2340) — Dark navy
-- **Pantone 202 C** (#862633) — Maroon
-- **Pantone 4525 C** (#C2A04F) — Gold
-- White & Black
-
-## Payment Integration
-
-Invoices include a **Pay Now** button linking to the program's SuccessFund page. Update the `PAY_URL` variable in `index.html` to change the payment link.
+Colors and marks follow Mill Creek High School's 2019 brand guide: Cardinal `#8b2331`, Vegas Gold `#c7b683`, Navy `#0c223f`, Jost type. `assets/mc-oval-primary.svg` is the MC Oval from the guide. Don't recolor or redraw it.
