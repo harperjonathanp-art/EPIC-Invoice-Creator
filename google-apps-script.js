@@ -22,6 +22,10 @@
 //
 //  Saving an invoice number that's already in the sheet updates that row
 //  instead of adding a duplicate.
+//
+//  Invoice numbers come from here in order (EPIC-2026-0001, -0002, …), starting
+//  over each January. The last number used is kept in Project Settings >
+//  Script Properties (lastInvoice2026, …) — change it there to skip ahead.
 // =====================================================
 
 var HEADERS = ['Invoice #', 'Date', 'Due Date', 'Customer', 'Email', 'Address', 'Items',
@@ -34,6 +38,23 @@ function doGet(e) {
 
   try {
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+
+    // ——— NEXT invoice number (EPIC-2026-0001, EPIC-2026-0002, …) ———
+    // Handed out under a lock, so two people starting invoices at once never get the same one.
+    if (action === 'next') {
+      var nlock = LockService.getScriptLock();
+      nlock.waitLock(20000);
+      try {
+        var year = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy');
+        var props = PropertiesService.getScriptProperties();
+        var key = 'lastInvoice' + year;
+        var n = Math.max(Number(props.getProperty(key)) || 0, highestNumber(sheet, year)) + 1;
+        props.setProperty(key, String(n));
+        return respond(callback, { status: 'success', action: 'next', invoiceNumber: 'EPIC-' + year + '-' + ('000' + n).slice(-4) });
+      } finally {
+        nlock.releaseLock();
+      }
+    }
 
     // ——— PING (test connection) ———
     if (action === 'ping') {
@@ -50,16 +71,13 @@ function doGet(e) {
         var values = rowValues(data);
         var row = headers.map(function (h) { return values.hasOwnProperty(h) ? values[h] : ''; });
         var existing = findRow(sheet, headers, data.invoiceNumber);
-        var at = existing;
         if (existing) {
           sheet.getRange(existing, 1, 1, row.length).setValues([row]);
         } else {
           sheet.appendRow(row); // appendRow adds a row to the sheet if it's full
-          at = sheet.getLastRow();
         }
-        ['Subtotal', 'Tax', 'Total', 'Balance Due'].forEach(function (h) {
-          sheet.getRange(at, headers.indexOf(h) + 1).setNumberFormat('$#,##0.00');
-        });
+        // No formatting calls here: a sheet formatted as a Table won't let a script
+        // change a typed column's format. Writing "$8.00" lets Sheets format it.
       } finally {
         lock.releaseLock();
       }
@@ -87,7 +105,8 @@ function doGet(e) {
   }
 }
 
-function money(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+// Dollar text like "$8.00" (the original script's format); Sheets turns it into a currency number
+function money(n) { var v = Math.round((Number(n) || 0) * 100) / 100; return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2); }
 
 function rowValues(d) {
   var items = (d.items || []).map(function (it) {
@@ -109,7 +128,7 @@ function rowValues(d) {
     'Tax': money(d.tax),
     'Total': money(d.total),
     'Notes': d.notes || '',
-    'Saved At': new Date(),
+    'Saved At': new Date().toLocaleString(),
     'Credits': credits,
     'Balance Due': money(d.balanceDue != null ? d.balanceDue : d.total),
     'Created By': d.createdBy || ''
@@ -133,6 +152,20 @@ function ensureHeaders(sheet) {
 }
 
 // Returns the sheet row number holding this invoice #, or 0.
+// Highest NNNN among this year's EPIC-YYYY-NNNN numbers already in the sheet (0 if none)
+function highestNumber(sheet, year) {
+  if (sheet.getLastRow() < 2) return 0;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  var col = headers.indexOf('Invoice #') + 1;
+  if (!col) return 0;
+  var re = new RegExp('^EPIC-' + year + '-(\\d+)$'), max = 0;
+  sheet.getRange(2, col, sheet.getLastRow() - 1, 1).getValues().forEach(function (r) {
+    var m = re.exec(String(r[0]).trim());
+    if (m) max = Math.max(max, Number(m[1]));
+  });
+  return max;
+}
+
 function findRow(sheet, headers, invoiceNumber) {
   if (!invoiceNumber || sheet.getLastRow() < 2) return 0;
   var col = headers.indexOf('Invoice #') + 1;
