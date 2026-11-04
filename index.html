@@ -472,7 +472,7 @@ function busyBtn(id, label) { var b = $(id); b.disabled = true; b.innerHTML = '<
 // ——— STATE ———
 var webAppUrl = SHEET_URL;
 var items = [], credits = [], nextId = 1, invoiceNumber = '', saved = [], saving = false;
-var lastSavedSig = '', lastEmailHtml = '';
+var lastSavedSig = '', lastEmailHtml = '', numberIsTemp = false, claiming = false;
 var pdfCache = { sig: '', blob: null };
 
 // ——— HELPERS ———
@@ -555,14 +555,14 @@ $('taxRate').addEventListener('change', function () { recalc(); changed(); });
 var s0 = lsGet(STORE_KEY); if (s0) { webAppUrl = s0; $('webAppUrl').value = s0; }
 syncUI(!!webAppUrl);
 
-if (!restoreDraft()) newInvoiceState();
+if (!restoreDraft()) newInvoiceState(); else claimNumber();
 renderItems(); renderCredits(); recalc(); go('form');
 
 // ——— DRAFT (so a refresh or closed tab doesn't lose work) ———
 function draftData() {
   return { invoiceNumber: invoiceNumber, invDate: $('invDate').value, dueDate: $('dueDate').value, taxRate: $('taxRate').value,
     custName: $('custName').value, custEmail: $('custEmail').value, custAddr: $('custAddr').value, notes: $('notes').value,
-    items: items, credits: credits, lastSavedSig: lastSavedSig };
+    items: items, credits: credits, lastSavedSig: lastSavedSig, numberIsTemp: numberIsTemp };
 }
 function changed() { lsSet(DRAFT_KEY, JSON.stringify(draftData())); updateSaveState(); }
 function restoreDraft() {
@@ -575,15 +575,33 @@ function restoreDraft() {
   credits = (d.credits || []).map(function (c) { return { id: nextId++, description: c.description || '', amount: Number(c.amount) || 0 }; });
   if (!items.length) items.push({ id: nextId++, description: '', qty: 1, price: 0 });
   lastSavedSig = d.lastSavedSig || '';
-  $('formInvNum').textContent = invoiceNumber;
+  numberIsTemp = !!d.numberIsTemp && !lastSavedSig; showNumber();
   return true;
 }
 function newInvoiceState() {
-  invoiceNumber = genInv(); $('formInvNum').textContent = invoiceNumber;
+  invoiceNumber = genInv(); numberIsTemp = true; showNumber();
   $('invDate').value = today(); $('dueDate').value = plusDays(30); $('taxRate').value = '0.06';
   $('custName').value = ''; $('custEmail').value = ''; $('custAddr').value = ''; $('notes').value = '';
   items = [{ id: nextId++, description: '', qty: 1, price: 0 }]; credits = []; lastSavedSig = '';
   ['custName'].forEach(function (id) { $(id).removeAttribute('aria-invalid'); });
+  claimNumber();
+}
+
+// ——— INVOICE NUMBERS ———
+// The sheet's script hands out numbers in order. Until it answers (or if it can't),
+// the invoice keeps a random fallback number so you're never stuck.
+function showNumber() { $('formInvNum').textContent = numberIsTemp && claiming ? 'Assigning…' : invoiceNumber; }
+async function claimNumber() {
+  if (!numberIsTemp || !webAppUrl || claiming) return;
+  var asked = invoiceNumber; claiming = true; showNumber();
+  try {
+    var d = await jsonp(webAppUrl + '?action=next', 15000);
+    // An older script ignores "next" and answers with the history instead — keep the fallback then
+    if (d && d.status === 'success' && d.invoiceNumber && invoiceNumber === asked && numberIsTemp) {
+      invoiceNumber = d.invoiceNumber; numberIsTemp = false; pdfCache = { sig: '', blob: null };
+    }
+  } catch (e) {}
+  claiming = false; showNumber(); changed();
 }
 
 // ——— SHEETS CONNECTION ———
@@ -646,6 +664,14 @@ async function saveToSheet(data) {
     if (d && d.status === 'success') return '';
     return 'the script reported "' + ((d && d.message) || 'unknown error') + '"';
   } catch (e) { return e.message; }
+}
+
+// After a failed reply, look in the sheet for the invoice before calling it unsaved
+async function savedInSheet(num) {
+  try {
+    var d = await jsonp(webAppUrl + '?action=load', 20000);
+    return !!(d && d.status === 'success' && (d.invoices || []).some(function (r) { return String(r['Invoice #']) === String(num); }));
+  } catch (e) { return false; }
 }
 
 // History tab: checks the Web App URL and says plainly what's wrong
@@ -778,6 +804,7 @@ function updateSaveState() {
 async function saveAndPreview() {
   if (saving) return;
   if (!validate()) return;
+  if (numberIsTemp && webAppUrl) await claimNumber(); // try once more for a proper number before saving
   var s = sig();
   if (s === lastSavedSig) { toast('Already saved', 'info'); go('preview'); return; }
   var data = invoiceData(), v = vals();
@@ -787,7 +814,8 @@ async function saveAndPreview() {
     saving = true; busyBtn('saveBtn', 'Saving…');
     var why = await saveToSheet(data);
     saving = false; $('saveBtn').disabled = false;
-    if (!why) { lastSavedSig = s; toast('Saved to Google Sheets', 'success'); }
+    if (why && await savedInSheet(invoiceNumber)) why = ''; // the row landed even though the reply didn't
+    if (!why) { lastSavedSig = s; numberIsTemp = false; toast('Saved to Google Sheets', 'success'); }
     else toast('Not saved to Sheets: ' + why + '. Your draft is kept on this device. Test connection on the History tab can tell you more.', 'error', 12000);
   }
   changed(); renderHistory(); go('preview');
