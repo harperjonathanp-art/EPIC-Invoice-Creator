@@ -50,8 +50,13 @@ function doGet(e) {
         var values = rowValues(data);
         var row = headers.map(function (h) { return values.hasOwnProperty(h) ? values[h] : ''; });
         var existing = findRow(sheet, headers, data.invoiceNumber);
-        var at = existing || sheet.getLastRow() + 1;
-        sheet.getRange(at, 1, 1, row.length).setValues([row]);
+        var at = existing;
+        if (existing) {
+          sheet.getRange(existing, 1, 1, row.length).setValues([row]);
+        } else {
+          sheet.appendRow(row); // appendRow adds a row to the sheet if it's full
+          at = sheet.getLastRow();
+        }
         ['Subtotal', 'Tax', 'Total', 'Balance Due'].forEach(function (h) {
           sheet.getRange(at, headers.indexOf(h) + 1).setNumberFormat('$#,##0.00');
         });
@@ -118,6 +123,9 @@ function ensureHeaders(sheet) {
   if (current.length === 1 && current[0] === '') current = [];
   var missing = HEADERS.filter(function (h) { return current.indexOf(h) === -1; });
   if (missing.length) {
+    // Make room if the sheet has been trimmed to fewer columns than we need
+    var need = current.length + missing.length - sheet.getMaxColumns();
+    if (need > 0) sheet.insertColumnsAfter(sheet.getMaxColumns(), need);
     sheet.getRange(1, current.length + 1, 1, missing.length).setValues([missing]).setFontWeight('bold');
     current = current.concat(missing);
   }
