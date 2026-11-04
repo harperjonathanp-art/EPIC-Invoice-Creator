@@ -424,6 +424,8 @@
       </div>
       <div id="hList"><div class="empty">No invoices saved yet.</div></div>
       <p class="hint" style="margin-top:var(--space-4)" id="sheetNote"></p>
+      <div style="margin-top:var(--space-3)"><button class="btn btn-outline btn-sm" id="testBtn" onclick="testConnection()"></button></div>
+      <p class="hint" style="margin-top:var(--space-2)" id="connResult" role="status"></p>
     </div>
   </section>
 </main>
@@ -492,7 +494,7 @@ function genInv() {
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function r2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function money(n) { return (n < 0 ? '−' : '') + '$' + Math.abs(r2(n)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function toast(m, t) { var e = $('toast'); e.textContent = m; e.className = 'toast ' + (t || 'info'); setTimeout(function () { e.classList.add('show'); }, 10); clearTimeout(toast._t); toast._t = setTimeout(function () { e.classList.remove('show'); }, 4500); }
+function toast(m, t, ms) { var e = $('toast'); e.textContent = m; e.className = 'toast ' + (t || 'info'); setTimeout(function () { e.classList.add('show'); }, 10); clearTimeout(toast._t); toast._t = setTimeout(function () { e.classList.remove('show'); }, ms || 4500); }
 function safeUrl(u) { u = String(u || '').trim(); if (!u) return ''; if (!/^https?:\/\//i.test(u)) u = 'https://' + u; return /^https?:\/\/[^\s"<>]+$/i.test(u) ? u : ''; }
 function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } }
 function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -526,6 +528,7 @@ setBtn('toEmailBtn', 'mail', 'Email invoice');
 setBtn('copyBtn', 'copy', 'Copy email HTML');
 setBtn('mailtoBtn', 'external', 'Open email (no attachment)');
 setBtn('rBtn', 'refresh', 'Refresh from Sheets');
+setBtn('testBtn', 'refresh', 'Test connection');
 var canShareFiles = (function () { try { return !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] })); } catch (e) { return false; } })();
 setBtn('sharePdfBtn', 'clip', canShareFiles ? 'Email with PDF attached' : 'Download PDF and start email');
 $('shareHint').textContent = canShareFiles
@@ -615,8 +618,8 @@ function jsonp(url, ms) {
     el = document.createElement('script');
     el.async = true;
     el.src = url + (url.indexOf('?') > -1 ? '&' : '?') + 'callback=' + cb;
-    el.onload = function () { setTimeout(function () { if (!done) finish(null, new Error('Google Sheets did not answer')); }, 2000); };
-    el.onerror = function () { finish(null, new Error('Could not reach Google Sheets')); };
+    el.onload = function () { setTimeout(function () { if (!done) finish(null, new Error('Google sent back a page instead of an answer')); }, 2000); };
+    el.onerror = function () { finish(null, new Error('Google refused the request or could not be reached')); };
     document.body.appendChild(el);
   });
 }
@@ -635,13 +638,32 @@ function invoiceData() {
 }
 function sig() { var d = invoiceData(); delete d.payUrl; delete d.createdBy; return JSON.stringify(d); }
 
+// Returns '' when saved, otherwise the reason it wasn't
 async function saveToSheet(data) {
-  if (!webAppUrl) return false;
+  if (!webAppUrl) return 'not connected to a sheet';
   try {
     var d = await jsonp(webAppUrl + '?action=save&payload=' + encodeURIComponent(JSON.stringify(data)), 20000);
-    if (d && d.status === 'success') return true;
-    toast('Sheets said: ' + ((d && d.message) || 'unknown error'), 'error'); return false;
-  } catch (e) { toast('Save error: ' + e.message, 'error'); return false; }
+    if (d && d.status === 'success') return '';
+    return 'the script reported "' + ((d && d.message) || 'unknown error') + '"';
+  } catch (e) { return e.message; }
+}
+
+// History tab: checks the Web App URL and says plainly what's wrong
+async function testConnection() {
+  var out = $('connResult');
+  if (!webAppUrl) { out.textContent = 'No sheet is connected.'; return; }
+  busyBtn('testBtn', 'Testing…');
+  var link = ' <a href="' + esc(webAppUrl + '?action=ping') + '" target="_blank" rel="noopener">Open the script link</a> in a private (incognito) window to see Google’s own message.';
+  try {
+    var d = await jsonp(webAppUrl + '?action=ping', 20000);
+    if (d && d.status === 'success' && d.message === 'Connected') out.innerHTML = '<strong>Connected.</strong> The new script is live, so saving should work.';
+    else if (d && d.status === 'success') out.innerHTML = '<strong>Connected, but the old script is still live.</strong> In Apps Script: Deploy → Manage deployments → pencil icon → Version: New version → Deploy.';
+    else out.innerHTML = '<strong>The script ran but hit an error:</strong> ' + esc((d && d.message) || 'unknown error');
+  } catch (e) {
+    out.innerHTML = '<strong>Couldn’t get an answer from the script</strong> (' + esc(e.message) + '). This usually means it needs authorizing, the deployment’s access isn’t set to “Anyone”, or this link points to a deployment that was removed.' + link;
+  }
+  out.innerHTML += '<br><span style="word-break:break-all">Link in use: ' + esc(webAppUrl) + (webAppUrl !== SHEET_URL ? ' (a custom link saved on this device)' : '') + '</span>';
+  $('testBtn').disabled = false; setBtn('testBtn', 'refresh', 'Test connection');
 }
 
 async function loadHistory() {
@@ -763,10 +785,10 @@ async function saveAndPreview() {
   saved = saved.filter(function (x) { return x.number !== invoiceNumber; }); saved.unshift(local);
   if (webAppUrl) {
     saving = true; busyBtn('saveBtn', 'Saving…');
-    var ok = await saveToSheet(data);
+    var why = await saveToSheet(data);
     saving = false; $('saveBtn').disabled = false;
-    if (ok) { lastSavedSig = s; toast('Saved to Google Sheets', 'success'); }
-    else toast('Not saved to Sheets. Your draft is kept on this device — try again in a moment.', 'error');
+    if (!why) { lastSavedSig = s; toast('Saved to Google Sheets', 'success'); }
+    else toast('Not saved to Sheets: ' + why + '. Your draft is kept on this device. Test connection on the History tab can tell you more.', 'error', 12000);
   }
   changed(); renderHistory(); go('preview');
 }
